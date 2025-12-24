@@ -1,0 +1,5 @@
+{
+  "name": "Le Village Maudit - MJ Tool",
+  "description": "Assistant de Maître du Jeu pour le Loup-Garou. Gestion des joueurs, attribution des rôles et suivi de la partie.",
+  "requestFramePermissions": []
+}

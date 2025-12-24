@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Le Village Maudit</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            fontFamily: {
+              serif: ['Cinzel', 'serif'],
+              sans: ['Inter', 'sans-serif'],
+            },
+            colors: {
+              werewolf: {
+                900: '#1a0505', // Très sombre, presque noir
+                800: '#380c0c', // Rouge sang séché
+                700: '#5c1414', // Rouge sang
+                600: '#8a1c1c', // Rouge vif terne
+                accent: '#d4af37', // Or vieilli pour les détails
+              }
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+      /* Gestion dynamique du fond et du texte pour le mode Jour/Nuit */
+      body {
+        background-color: #f4f4f5; /* Zinc 100 - Mode Jour par défaut */
+        color: #18181b; /* Zinc 900 */
+        transition: background-color 1s ease, color 1s ease;
+      }
+      
+      html.dark body {
+        background-color: #09090b; /* Zinc 950 - Mode Nuit */
+        color: #e4e4e7; /* Zinc 200 */
+      }
+
+      /* Custom Scrollbar for dark/light theme */
+      ::-webkit-scrollbar {
+        width: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent; 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #a1a1aa; 
+        border-radius: 4px;
+      }
+      html.dark ::-webkit-scrollbar-thumb {
+        background: #3f3f46; 
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #71717a; 
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.2.3/",
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
