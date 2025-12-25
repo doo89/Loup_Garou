@@ -284,6 +284,7 @@ const GameManager: React.FC<GameManagerProps> = ({ players, selectedRoles, comed
         if (roleId === INFECT_ACTION_ID) return true;
         
         if (roleId === 'wolf-dog') return turnCount === 1 && gamePlayers.some(p => p.roleId === 'wolf-dog' && p.status === 'ALIVE');
+        // CRITICAL: Fox should only be active if it hasn't lost power
         if (roleId === 'fox') return gamePlayers.some(p => p.roleId === 'fox' && p.status === 'ALIVE' && !p.isPowerLost);
 
         if (roleId === 'comedian') return gamePlayers.some(p => p.roleId === 'comedian' && p.status === 'ALIVE');
@@ -366,14 +367,48 @@ const GameManager: React.FC<GameManagerProps> = ({ players, selectedRoles, comed
   const currentStepRole = nightSequence[currentStepIndex];
 
   // --- ACTIONS HANDLERS ---
+  
+  const advanceStep = () => {
+      setCurrentTargets([]);
+      setSpecialAction(null);
+      setIsLittleGirlSurprised(false);
+
+      if (currentStepIndex < nightSequence.length - 1) {
+          setCurrentStepIndex(prev => prev + 1);
+      } else {
+          // Rusty Knight Vengeance Check (End of Night)
+          if (rustySwordTarget && rustySwordTarget.killTurn === turnCount) {
+              const victim = gamePlayers.find(p => p.id === rustySwordTarget.id);
+              if (victim && victim.status === 'ALIVE') {
+                  setNightEvents(prev => [...prev, {
+                      roleId: 'rusty-knight',
+                      actionType: 'KILL',
+                      targetIds: [victim.id]
+                  }]);
+                  addLog('MATIN', `La malédiction de l'Épée Rouillée a frappé : ${formatPlayer(victim)} meurt du tétanos !`);
+              }
+              setRustySwordTarget(null);
+          }
+          setPhase('MORNING');
+      }
+  };
 
   const handleNextStep = () => {
-    if (currentStepRole) {
-      // Logic unchanged for standard actions...
-      if (currentStepRole.id === 'comedian' && specialAction) {
-         setComedianCurrentRole(specialAction);
-      }
-      else if (currentStepRole.id === 'seer') {
+    if (!currentStepRole) return;
+
+    // === ROLE SPECIFIC LOGIC (MUTUALLY EXCLUSIVE) ===
+
+    // 1. COMEDIAN
+    if (currentStepRole.id === 'comedian') {
+        if (specialAction) {
+            setComedianCurrentRole(specialAction);
+        }
+        advanceStep();
+        return;
+    }
+
+    // 2. SEER
+    if (currentStepRole.id === 'seer') {
         if (!seerReveal && currentTargets.length === 1) {
            const target = gamePlayers.find(p => p.id === currentTargets[0]);
            if (target) {
@@ -383,74 +418,133 @@ const GameManager: React.FC<GameManagerProps> = ({ players, selectedRoles, comed
                  isTransformed: target.isTransformed || target.isWolfSide
               });
            }
-           return; 
+           // Stay on step to show reveal
         } else {
            setSeerReveal(null);
+           advanceStep();
         }
-      }
-      else if (currentStepRole.id === 'fox') {
-          if (!foxResult && currentTargets.length === 1) {
-              const targetId = currentTargets[0];
-              const target = gamePlayers.find(p => p.id === targetId);
-              if (target) {
-                  const neighbors = getLivingNeighbors(targetId);
-                  const groupToCheck = [target, ...neighbors];
-                  const hasWolf = groupToCheck.some(p => isWolf(p));
+        return;
+    }
 
-                  if (hasWolf) {
-                      setFoxResult('FOUND');
-                      addLog('NUIT', `Le Renard a flairé un Loup parmi ${formatPlayer(target)} et ses voisins.`);
-                  } else {
-                      setFoxResult('NOT_FOUND');
-                      setGamePlayers(prev => prev.map(p => p.roleId === 'fox' ? { ...p, isPowerLost: true } : p));
-                      addLog('NUIT', `Le Renard n'a rien senti autour de ${formatPlayer(target)}. Il perd son flair.`);
-                  }
-              }
-              return;
-          } else {
-              setFoxResult(null);
-          }
-      }
-      else if (currentStepRole.id === 'wolf-dog') {
-          const dog = gamePlayers.find(p => p.roleId === 'wolf-dog');
-          if (dog) {
-             const choseWolf = specialAction === 'BECOME_WOLF';
-             if (choseWolf) {
-                 const newPlayers = gamePlayers.map(p => p.id === dog.id ? { ...p, isWolfSide: true } : p);
-                 setGamePlayers(newPlayers);
-                 addLog('NUIT', `${formatPlayer(dog)} a choisi de rejoindre la meute des Loups-Garous.`);
-             } else {
-                 addLog('NUIT', `${formatPlayer(dog)} a choisi de rester un fidèle Villageois.`);
-             }
-          }
-      }
-      else if (currentStepRole.id === INFECT_ACTION_ID) {
-           if (specialAction === 'INFECT') {
-               // Get the victim of the wolves from the current night's events
-               const wolfKillEventIndex = nightEvents.findIndex(e => e.roleId === 'simple-werewolf' && e.actionType === 'KILL');
-               if (wolfKillEventIndex !== -1) {
-                   const victimId = nightEvents[wolfKillEventIndex].targetIds[0];
-                   const victim = gamePlayers.find(p => p.id === victimId);
-                   
-                   if (victim) {
-                       // Remove kill event
-                       const newEvents = [...nightEvents];
-                       newEvents.splice(wolfKillEventIndex, 1);
-                       
-                       // Add Infect Event
-                       newEvents.push({ roleId: 'infected-father', actionType: 'INFECT', targetIds: [victimId] });
-                       setNightEvents(newEvents);
-                       
-                       // Transform player immediately in state (visual feedback + logic)
-                       setGamePlayers(prev => prev.map(p => p.id === victimId ? { ...p, isWolfSide: true } : p));
-                       setInfectPowerUsed(true);
-                       addLog('NUIT', `L'Infect Père des Loups a transformé ${formatPlayer(victim)} en Loup-Garou !`);
-                   }
-               }
-           }
-      }
-      else if (currentTargets.length > 0 || specialAction || isLittleGirlSurprised) {
+    // 3. FOX (CRITICAL FIX)
+    if (currentStepRole.id === 'fox') {
+        if (!foxResult && currentTargets.length === 1) {
+            // Perform Sniff
+            const targetId = currentTargets[0];
+            const target = gamePlayers.find(p => p.id === targetId);
+            if (target) {
+                const neighbors = getLivingNeighbors(targetId);
+                const groupToCheck = [target, ...neighbors];
+                const hasWolf = groupToCheck.some(p => isWolf(p));
+
+                if (hasWolf) {
+                    setFoxResult('FOUND');
+                    addLog('NUIT', `Le Renard a flairé un Loup parmi ${formatPlayer(target)} et ses voisins.`);
+                } else {
+                    setFoxResult('NOT_FOUND');
+                    // DO NOT SET isPowerLost YET. Wait for user acknowledgement.
+                    // This keeps the Fox in the nightSequence for this render cycle.
+                    addLog('NUIT', `Le Renard n'a rien senti autour de ${formatPlayer(target)}. Il perd son flair.`);
+                }
+            }
+            // Stay on step to show result
+        } else {
+            // Acknowledging result (User clicked "Continuer")
+            if (foxResult === 'NOT_FOUND') {
+                // Apply penalty NOW.
+                setGamePlayers(prev => prev.map(p => p.roleId === 'fox' ? { ...p, isPowerLost: true } : p));
+                setFoxResult(null);
+                setCurrentTargets([]);
+                
+                // CRITICAL: Do NOT call advanceStep() (which increments index).
+                // Because Fox will be removed from nightSequence upon state update, 
+                // the role that was at [currentStepIndex + 1] will shift to [currentStepIndex].
+                // So keeping the same index naturally points to the next role.
+                
+                // Edge Case: If Fox was the LAST role, currentStepIndex is now out of bounds.
+                // We must check if we should end the night.
+                // Note: nightSequence.length here is still the length INCLUDING the Fox.
+                if (currentStepIndex >= nightSequence.length - 1) {
+                     // End of Night Logic (Manual Trigger)
+                     if (rustySwordTarget && rustySwordTarget.killTurn === turnCount) {
+                        const victim = gamePlayers.find(p => p.id === rustySwordTarget.id);
+                        if (victim && victim.status === 'ALIVE') {
+                            setNightEvents(prev => [...prev, {
+                                roleId: 'rusty-knight',
+                                actionType: 'KILL',
+                                targetIds: [victim.id]
+                            }]);
+                            addLog('MATIN', `La malédiction de l'Épée Rouillée a frappé : ${formatPlayer(victim)} meurt du tétanos !`);
+                        }
+                        setRustySwordTarget(null);
+                    }
+                    setPhase('MORNING');
+                }
+                
+            } else {
+                // FOUND. No penalty. Standard advance.
+                setFoxResult(null);
+                advanceStep();
+            }
+        }
+        return;
+    }
+
+    // 4. WOLF DOG
+    if (currentStepRole.id === 'wolf-dog') {
+        const dog = gamePlayers.find(p => p.roleId === 'wolf-dog');
+        if (dog) {
+            const choseWolf = specialAction === 'BECOME_WOLF';
+            if (choseWolf) {
+                const newPlayers = gamePlayers.map(p => p.id === dog.id ? { ...p, isWolfSide: true } : p);
+                setGamePlayers(newPlayers);
+                addLog('NUIT', `${formatPlayer(dog)} a choisi de rejoindre la meute des Loups-Garous.`);
+            } else {
+                addLog('NUIT', `${formatPlayer(dog)} a choisi de rester un fidèle Villageois.`);
+            }
+        }
+        advanceStep();
+        return;
+    }
+
+    // 5. INFECT FATHER
+    if (currentStepRole.id === INFECT_ACTION_ID) {
+        if (specialAction === 'INFECT') {
+            const wolfKillEventIndex = nightEvents.findIndex(e => e.roleId === 'simple-werewolf' && e.actionType === 'KILL');
+            if (wolfKillEventIndex !== -1) {
+                const victimId = nightEvents[wolfKillEventIndex].targetIds[0];
+                const victim = gamePlayers.find(p => p.id === victimId);
+                
+                if (victim) {
+                    // Remove kill event
+                    const newEvents = [...nightEvents];
+                    newEvents.splice(wolfKillEventIndex, 1);
+                    
+                    // Add Infect Event
+                    newEvents.push({ roleId: 'infected-father', actionType: 'INFECT', targetIds: [victimId] });
+                    setNightEvents(newEvents);
+                    
+                    setGamePlayers(prev => prev.map(p => p.id === victimId ? { ...p, isWolfSide: true } : p));
+                    setInfectPowerUsed(true);
+                    addLog('NUIT', `L'Infect Père des Loups a transformé ${formatPlayer(victim)} en Loup-Garou !`);
+                }
+            }
+        }
+        advanceStep();
+        return;
+    }
+
+    // 6. LOVERS & SIBLINGS (PASSIVE RECOGNITION)
+    if (currentStepRole.id === LOVERS_RECOGNITION_ID || currentStepRole.id === 'two-sisters' || currentStepRole.id === 'three-brothers') {
+        advanceStep();
+        return;
+    }
+
+    // 7. GENERIC ACTION HANDLER (KILL, SAVE, CURSE, LINK)
+    // For roles like Werewolf, Witch, Salvager, Cupid, Raven, Big Bad Wolf, Thief, Scapegoat
+    if (currentTargets.length > 0 || specialAction || isLittleGirlSurprised) {
         let type: GameEvent['actionType'] = 'KILL';
+        
         if (specialAction) {
            type = specialAction as GameEvent['actionType'];
         } else {
@@ -460,16 +554,15 @@ const GameManager: React.FC<GameManagerProps> = ({ players, selectedRoles, comed
               case 'wild-child': type = 'TRANSFORM'; break;
               case 'raven': type = 'CURSE'; break;
               case 'thief': type = 'TRANSFORM'; break;
-              case 'scapegoat': type = 'BAN_VOTE'; break; // Should be handled in Scapegoat Phase but safe here
+              case 'scapegoat': type = 'BAN_VOTE'; break;
               default: type = 'KILL'; 
            }
         }
         
-        // LITTLE GIRL SURPRISED (ADDITIONAL KILL)
+        // Handle Little Girl Kill (Side Effect)
         if (currentStepRole.id === 'simple-werewolf' && isLittleGirlSurprised) {
             const littleGirl = gamePlayers.find(p => p.roleId === 'little-girl' && p.status === 'ALIVE');
             if (littleGirl) {
-                // Add explicit kill event for Little Girl
                 setNightEvents(prev => [...prev, {
                     roleId: 'simple-werewolf',
                     actionType: 'KILL',
@@ -479,6 +572,7 @@ const GameManager: React.FC<GameManagerProps> = ({ players, selectedRoles, comed
             }
         }
 
+        // Handle Standard Actions
         if (type === 'LINK') {
              const newPlayers = [...gamePlayers];
              currentTargets.forEach(tId => {
@@ -499,38 +593,15 @@ const GameManager: React.FC<GameManagerProps> = ({ players, selectedRoles, comed
 
         if (currentTargets.length > 0) {
             setNightEvents(prev => [...prev, {
-            roleId: currentStepRole.id,
-            actionType: type,
-            targetIds: currentTargets
+                roleId: currentStepRole.id,
+                actionType: type,
+                targetIds: currentTargets
             }]);
         }
-      }
     }
-
-    setCurrentTargets([]);
-    setSpecialAction(null);
-    setIsLittleGirlSurprised(false);
-
-    if (currentStepIndex < nightSequence.length - 1) {
-      setCurrentStepIndex(prev => prev + 1);
-    } else {
-      
-      // RUSTY KNIGHT VENGEANCE CHECK (End of Night)
-      if (rustySwordTarget && rustySwordTarget.killTurn === turnCount) {
-          const victim = gamePlayers.find(p => p.id === rustySwordTarget.id);
-          if (victim && victim.status === 'ALIVE') {
-              setNightEvents(prev => [...prev, {
-                  roleId: 'rusty-knight',
-                  actionType: 'KILL',
-                  targetIds: [victim.id]
-              }]);
-              addLog('MATIN', `La malédiction de l'Épée Rouillée a frappé : ${formatPlayer(victim)} meurt du tétanos !`);
-          }
-          setRustySwordTarget(null); // Clear
-      }
-
-      setPhase('MORNING');
-    }
+    
+    // Always advance after handling generic
+    advanceStep();
   };
 
   const handleWitchAction = (type: 'WITCH_SAVE' | 'WITCH_KILL', targetId?: string) => {
